@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EuroTrip Predictor</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header><p class="eyebrow">Vacation feasibility explorer</p><h1>Find your practical European trip.</h1><p>Compare estimated USD trip cost, currency value, and EU preference. Demo values are illustrative.</p></header>
+      <form id="controls">
+        <label>Trip length <input name="days" type="range" min="7" max="28" value="14"><output id="days-output">14 days</output></label>
+        <label>Budget <input name="budget" type="range" min="1200" max="6000" step="100" value="3000"><output id="budget-output">$3,000</output></label>
+        <label class="toggle"><input name="euOnly" type="checkbox"> EU members only</label>
+        <fieldset><legend>Compare areas</legend><div id="group-controls" class="group-controls"></div></fieldset>
+      </form>
+      <section class="chart-card" aria-labelledby="chart-title"><div class="chart-heading"><h2 id="chart-title">Feasibility by country</h2><p id="summary" aria-live="polite"></p></div><p class="legend" id="legend"></p><svg id="chart" role="img" aria-label="Country feasibility line graph" viewBox="0 0 860 350"></svg></section>
+      <section aria-labelledby="table-title"><h2 id="table-title">Ranked results</h2><div class="table-wrap"><table><thead><tr><th>Country / code</th><th>Score</th><th>Estimated trip cost</th><th>Currency</th></tr></thead><tbody id="results"></tbody></table></div></section>
+    </main>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

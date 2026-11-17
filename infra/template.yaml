@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless API and scheduled ingestion foundation for EuroTrip Predictor.
+
+Parameters:
+  BudgetAlertEmail:
+    Type: String
+    Description: Email address that receives the AWS monthly-cost alert and confirms its subscription.
+  MonthlyBudgetDollars:
+    Type: Number
+    Default: 25
+    MinValue: 1
+    Description: Maximum monthly AWS spend for this prototype in USD.
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 15
+    MemorySize: 256
+
+Resources:
+  CountryMetricsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: iso2
+          AttributeType: S
+      KeySchema:
+        - AttributeName: iso2
+          KeyType: HASH
+
+  RankingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: src/lambda.handler
+      Environment:
+        Variables:
+          COUNTRY_METRICS_TABLE: !Ref CountryMetricsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CountryMetricsTable
+      Events:
+        RankingsApi:
+          Type: HttpApi
+          Properties:
+            Path: /rankings
+            Method: GET
+
+  PrototypeCostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetDollars
+          Unit: USD
+        BudgetName: !Sub eurotrip-predictor-${AWS::StackName}
+        BudgetType: COST
+        TimeUnit: MONTHLY
+      NotificationsWithSubscribers:
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: ACTUAL
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - Address: !Ref BudgetAlertEmail
+              SubscriptionType: EMAIL
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  WebsiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-website-oac
+        Description: CloudFront-only access to the EuroTrip static website bucket.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: WebsiteS3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt WebsiteOriginAccessControl.Id
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: WebsiteS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebsiteDistribution}
+
+Outputs:
+  RankingsEndpoint:
+    Description: GET endpoint for the browser client.
+    Value: !Sub https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/rankings
+  BudgetName:
+    Description: Monthly AWS cost budget created for the prototype.
+    Value: !Ref PrototypeCostBudget
+  WebsiteBucketName:
+    Description: Private S3 bucket that stores the browser application.
+    Value: !Ref WebsiteBucket
+  WebsiteUrl:
+    Description: Public CloudFront URL for the EuroTrip Predictor website.
+    Value: !Sub https://${WebsiteDistribution.DomainName}
+  WebsiteDistributionId:
+    Description: CloudFront distribution identifier for cache invalidation after website uploads.
+    Value: !Ref WebsiteDistribution
